@@ -1,5 +1,9 @@
 package game
 
+import (
+	"log"
+)
+
 // EventType defines the type of event
 type EventType int
 
@@ -269,6 +273,24 @@ func TriggerNeutralBaseCaptured(neutral *NeutralBase) {
 }
 
 func TriggerKickEvent(player *Player, reason byte) {
+	playerName := string(player.Name[:])
+	// Trim trailing null bytes
+	for i := len(playerName) - 1; i >= 0 && playerName[i] == 0; i-- {
+		playerName = playerName[:i]
+	}
+
+	var reasonStr string
+	switch reason {
+	case KICK_REASON_TIMEOUT:
+		reasonStr = "timeout"
+	case KICK_REASON_SCRIPTING:
+		reasonStr = "scripting"
+	default:
+		reasonStr = "unknown"
+	}
+
+	log.Printf("Illegal event: Player %s kicked for %s", playerName, reasonStr)
+
 	event := &KickEvent{
 		Player: player,
 		Reason: reason,

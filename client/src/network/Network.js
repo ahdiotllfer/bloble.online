@@ -6,6 +6,7 @@ export default class Network {
         this.loadBalancerAddress = loadBalancerAddress;
         this.isDev = this.isLocalDomain();// Detect if it's a local domain
         this.serverAddress = null;
+        this.currentGamemode = 0; // Store current gamemode for reconnection
 
         // Event listeners
         this.eventListeners = {
@@ -47,38 +48,23 @@ export default class Network {
         }
     };
 
-    async connect () {
-        if (1 == 1) {
-            this.serverAddress = 'blubber.run.place/ffa1';
-            this.worker.postMessage({ type: 'connect', data: `wss://${this.serverAddress}` });
-
+    async connect (gamemode = 0) {
+        this.currentGamemode = gamemode; // Store current gamemode
+        // Use hardcoded addresses based on gamemode
+        if (gamemode === 0) {
+            this.serverAddress = 'bloble.online/ffa1';
+        } else if (gamemode === 1) {
+            this.serverAddress = 'bloble.online/smallbases1';
         } else {
-            // Production mode: Fetch server address and connect
-            const response = await fetch(`${this.loadBalancerAddress}/get-server`, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to fetch server address');
-            }
-
-            const data = await response.json();
-            if (!data.server_address) {
-                throw new Error('Server address not found in response');
-            }
-
-            this.serverAddress = data.server_address;
-            this.worker.postMessage({ type: 'connect', data: `wss://${this.serverAddress}` });
+            this.serverAddress = 'bloble.online/ffa1'; // Default
         }
+        this.worker.postMessage({ type: 'connect', data: `wss://${this.serverAddress}` });
     }
 
     async retryConnect () {
         console.log(`Reconnecting in ${this.retryDelay / 1000} seconds...`);
         await this.delay(this.retryDelay);
-        this.connect(); // Try to reconnect
+        this.connect(this.currentGamemode); // Try to reconnect with current gamemode
     }
 
     onConnect (data) {

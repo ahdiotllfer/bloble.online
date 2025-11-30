@@ -51,9 +51,13 @@ func (n *NeutralBase) GetID() ID {
 }
 
 func PopulateNeutralBase(neutral *NeutralBase) {
+	spikeWallRadius := NEUTRAL_BASE_MAX_BUILDING_RADIUS
+	numWalls := 22
+	if CurrentGameMode == MODE_SMALL_BASES && neutral.Base.Position.X == 0 && neutral.Base.Position.Y == 0 {
+		spikeWallRadius = 400 // Bigger radius for central base but not too big
+		numWalls = 35         // More walls for the bigger central base
+	}
 	const (
-		spikeWallRadius = NEUTRAL_BASE_MAX_BUILDING_RADIUS
-		numWalls        = 22
 		fullCircleAngle = 2 * math.Pi
 	)
 

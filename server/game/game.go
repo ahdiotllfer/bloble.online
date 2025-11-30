@@ -19,12 +19,21 @@ type GameState struct {
 	sync.RWMutex
 }
 
+type DisconnectedPlayer struct {
+	Player      *Player
+	ExpiresAt   time.Time
+	Fingerprint uint32
+}
+
 var (
 	State = GameState{
 		Players:            make(map[ID]*Player),
 		AvailablePositions: make(map[PositionInt]bool),
 	}
-	availablePlayerIDs *AvailableIDs
+	availablePlayerIDs    *AvailableIDs
+	CurrentGameMode       GameMode = MODE_FFA
+	DisconnectedPlayers   = make(map[uint32]*DisconnectedPlayer)
+	DisconnectedPlayersMu sync.RWMutex
 )
 
 func init() {
@@ -38,6 +47,7 @@ func init() {
 	go startTargetingLoop()
 	go startEntityUpdateLoop()
 	go startProtectionCheckLoop()
+	go startDisconnectedPlayerCleanupLoop()
 }
 
 func Start() {
@@ -927,8 +937,12 @@ func checkBaseCollisions(player *Player, players []*Player, units []*Unit) {
 			}
 
 			// Check if unit is colliding with the core
+			coreRadius := PLAYER_MAX_CORE_RADIUS
+			if CurrentGameMode == MODE_SMALL_BASES {
+				coreRadius = PLAYER_SMALL_BASES_CORE_RADIUS
+			}
 			otherPlayerHealth := otherPlayer.Base.Health.Current
-			isNearCore := unit.IsWithinRadius(IntToFloat(basePosition), (float32(otherPlayerHealth)/PLAYER_INITIAL_HEALTH)*PLAYER_MAX_CORE_RADIUS+unitSize)
+			isNearCore := unit.IsWithinRadius(IntToFloat(basePosition), (float32(otherPlayerHealth)/PLAYER_INITIAL_HEALTH)*float32(coreRadius)+unitSize)
 			if isNearCore {
 				unitHealth := unit.Health.Current
 				unitIsAlive := unit.TakeDamage(otherPlayerHealth)
@@ -1136,9 +1150,13 @@ func applyExplosionDamage(unit *Unit) {
 				}
 			}
 
+			coreRadius := PLAYER_MAX_CORE_RADIUS
+			if CurrentGameMode == MODE_SMALL_BASES {
+				coreRadius = PLAYER_SMALL_BASES_CORE_RADIUS
+			}
 			basePosition := player.Base.Position
 			otherPlayerHealth := player.Base.Health.Get()
-			isNearCore := unit.IsWithinRadius(IntToFloat(basePosition), (float32(otherPlayerHealth)/PLAYER_INITIAL_HEALTH)*PLAYER_MAX_CORE_RADIUS+explosionRadius)
+			isNearCore := unit.IsWithinRadius(IntToFloat(basePosition), (float32(otherPlayerHealth)/PLAYER_INITIAL_HEALTH)*float32(coreRadius)+explosionRadius)
 			if isNearCore {
 				isAlive := player.Base.TakeDamage(damage)
 				TriggerBaseHealthUpdateEvent(player.Base)
@@ -1368,7 +1386,7 @@ func handleBuildingDestroyed(building *Building, base *Base) {
 	}
 }
 
-func AddPlayer(conn *websocket.Conn, permission Permission, name []byte, color []byte, skinID ID) (*Player, bool) {
+func AddPlayer(conn *websocket.Conn, permission Permission, name []byte, color []byte, skinID ID, fingerprint uint32) (*Player, bool) {
 	State.Lock()
 	defer State.Unlock()
 
@@ -1391,6 +1409,7 @@ func AddPlayer(conn *websocket.Conn, permission Permission, name []byte, color [
 		Conn:              conn,
 		Permission:        permission,
 		Name:              [12]byte{},
+		Fingerprint:       fingerprint,
 		SkinID:            skinID,
 		StartTime:         time.Now(),
 		Kills:             0,
@@ -1488,47 +1507,70 @@ func RemovePlayer(conn *websocket.Conn) (ID, uint32, uint32, time.Duration, bool
 		return 0, 0, 0, 0, false // Player not found
 	}
 
-	player.MarkForRemoval() // ! Just to be sure
-
-	playerBasePosition := player.Base.Position
-	MarkPositionAvailable(playerBasePosition)
-
-	// Lock the player and player base
-	player.Lock()
-	playerScore := player.Score
-	playtime := player.GetPlayDuration()
-	kills := player.GetKills()
-
-	// Clean up player resources
-	// Remove units
-	for unitID := range player.Units {
-		delete(player.Units, unitID) // Remove unit from map
-	}
-	player.Unlock()
-
-	player.Base.Lock()
-	// Remove buildings
-	for buildingID := range player.Base.Buildings {
-		delete(player.Base.Buildings, buildingID) // Remove building from map
-	}
-	// Remove bullets
-	for bulletID := range player.Base.Bullets {
-		delete(player.Base.Bullets, bulletID) // Remove bullet from map
-	}
-	player.Base.Unlock()
-
-	for _, base := range player.CapturedNeutralBases {
-		base.Captured(nil)
+	playerName := string(player.Name[:])
+	// Trim trailing null bytes
+	for i := len(playerName) - 1; i >= 0 && playerName[i] == 0; i-- {
+		playerName = playerName[:i]
 	}
 
-	// Return player ID to available pool
-	availablePlayerIDs.returnID(playerID)
+	// Check if this is a kick (marked for removal) or a normal disconnect
+	if player.IsMarkedForRemoval() {
+		// This is a kick or game over - remove immediately
+		playerBasePosition := player.Base.Position
+		MarkPositionAvailable(playerBasePosition)
 
-	// Remove player from the State.Players map
-	delete(State.Players, playerID)
-	log.Printf("Player %d removed successfully", playerID)
+		// Lock the player and player base
+		player.Lock()
+		playerScore := player.Score
+		playtime := player.GetPlayDuration()
+		kills := player.GetKills()
 
-	return playerID, playerScore, kills, playtime, true // Player successfully removed
+		// Clean up player resources
+		// Remove units
+		for unitID := range player.Units {
+			delete(player.Units, unitID) // Remove unit from map
+		}
+		player.Unlock()
+
+		player.Base.Lock()
+		// Remove buildings
+		for buildingID := range player.Base.Buildings {
+			delete(player.Base.Buildings, buildingID) // Remove building from map
+		}
+		// Remove bullets
+		for bulletID := range player.Base.Bullets {
+			delete(player.Base.Bullets, bulletID) // Remove bullet from map
+		}
+		player.Base.Unlock()
+
+		for _, base := range player.CapturedNeutralBases {
+			base.Captured(nil)
+		}
+
+		// Return player ID to available pool
+		availablePlayerIDs.returnID(playerID)
+
+		// Remove player from the State.Players map
+		delete(State.Players, playerID)
+		log.Printf("Player kicked/left permanently: %s (ID: %d)", playerName, playerID)
+
+		return playerID, playerScore, kills, playtime, true // Player successfully removed
+	} else {
+		// This is a disconnect - preserve player state for reconnection
+		DisconnectedPlayersMu.Lock()
+		DisconnectedPlayers[player.Fingerprint] = &DisconnectedPlayer{
+			Player:      player,
+			ExpiresAt:   time.Now().Add(PLAYER_RECONNECTION_WINDOW * time.Second),
+			Fingerprint: player.Fingerprint,
+		}
+		DisconnectedPlayersMu.Unlock()
+
+		// Remove from active players but keep the data
+		delete(State.Players, playerID)
+		log.Printf("Player disconnected (reconnection available): %s (ID: %d)", playerName, playerID)
+
+		return playerID, 0, 0, 0, true // Player disconnected, not permanently removed
+	}
 }
 
 func GetPlayerByConn(conn *websocket.Conn) (*Player, bool) {
@@ -1541,4 +1583,37 @@ func GetPlayerByConn(conn *websocket.Conn) (*Player, bool) {
 	}
 
 	return nil, false
+}
+
+func startDisconnectedPlayerCleanupLoop() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		DisconnectedPlayersMu.Lock()
+		now := time.Now()
+		for fingerprint, disconnectedPlayer := range DisconnectedPlayers {
+			if now.After(disconnectedPlayer.ExpiresAt) {
+				// Remove expired disconnected player
+				playerName := string(disconnectedPlayer.Player.Name[:])
+				// Trim trailing null bytes
+				for i := len(playerName) - 1; i >= 0 && playerName[i] == 0; i-- {
+					playerName = playerName[:i]
+				}
+				log.Printf("Reconnection window expired for player: %s", playerName)
+
+				// Clean up the player's resources
+				MarkPositionAvailable(disconnectedPlayer.Player.Base.Position)
+				delete(DisconnectedPlayers, fingerprint)
+			}
+		}
+		DisconnectedPlayersMu.Unlock()
+	}
+}
+
+func GetPlayerMaxBuildingRadius() int16 {
+	if CurrentGameMode == MODE_SMALL_BASES {
+		return 250
+	}
+	return PLAYER_MAX_BUILDING_RADIUS
 }

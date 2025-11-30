@@ -22,7 +22,8 @@ TODO:
 
 
 export const Servers = {
-    "Frankfurt": "https://blubber.run.place/ffa1",
+    "Moscow": "https://bloble.online/ffa1",
+    "Moscow Small Bases": "https://bloble.online/smallbases1",
 };
 
 export const MessageTypes = {

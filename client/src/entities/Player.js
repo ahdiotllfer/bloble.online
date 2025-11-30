@@ -5,7 +5,7 @@ import ThemeManager from "../components/managers/ThemeManager.js";
 import SkinCache from "../components/SkinCache.js";
 
 export default class Player extends Renderable {
-    constructor (id, name = "blobl.io", color, skinID = 0, position = { x: 0, y: 0 }, health = 2000, hasSpawnProtection = true) {
+    constructor (id, name = "blobl.io", color, skinID = 0, position = { x: 0, y: 0 }, health = 2000, hasSpawnProtection = true, maxBuildingRadius = 350, gamemode = 0) {
         super();
         this.isVisible = true;
         this.isClient = false; // Indicates whether this player instance is the client player
@@ -23,11 +23,22 @@ export default class Player extends Renderable {
         this.springVelocity = 0;
         this.springDamping = 0.1;
         this.springStiffness = 0.005;
-        this.buildingRadius = {
-            max: 355,
-            min: 120
+        // Set building radius based on gamemode
+        if (gamemode === 1) { // Small Bases mode
+            this.buildingRadius = {
+                max: maxBuildingRadius,
+                min: 80
+            }
+            this.coreRadius = { max: 78 }; // min - 2 = 80 - 2 = 78
+        } else {
+            this.buildingRadius = {
+                max: maxBuildingRadius,
+                min: 120
+            }
+            this.coreRadius = { max: this.buildingRadius.min - 2 }; // Normal core radius
         }
-        this.coreRadius = { max: this.buildingRadius.min - 2 };
+        console.log(`Player ${this.id} building radius: max=${this.buildingRadius.max}, min=${this.buildingRadius.min}`);
+
         this.buildingCache = null;
         this.buildingCacheTimestamp = 0;
         this.buildings = [];

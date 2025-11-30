@@ -265,10 +265,15 @@ func InitializeGameMap() {
 			ID: ID(i), // IDs are assigned based on position index
 		}
 
+		health := uint16(NEUTRAL_BASE_INITIAL_HEALTH)
+		if CurrentGameMode == MODE_SMALL_BASES && pos.X == 0 && pos.Y == 0 {
+			health = 1000 // Central base with standard HP
+		}
+
 		neutralBase.Base = &Base{
 			Owner:                neutralBase,
 			Position:             pos,
-			Health:               Health{Current: NEUTRAL_BASE_INITIAL_HEALTH, Max: NEUTRAL_BASE_INITIAL_HEALTH},
+			Health:               Health{Current: health, Max: health},
 			Buildings:            make(map[ID]*Building),
 			Bullets:              make(map[ID]*Bullet),
 			AvailableBuildingIDs: InitAvailableIDs(256),
@@ -283,6 +288,8 @@ func InitializeGameMap() {
 	for _, base := range State.NeutralBases {
 		PopulateNeutralBase(base)
 	}
+
+	// Central neutral base health is already set correctly above
 
 	// Generate bushes away from player and neutral base positions
 	State.Bushes = generateBushes(playerPositions, neutralPositions, 8000, 30, 800)

@@ -30,6 +30,12 @@ export default class NetworkManager {
         this.loggedIn = false;
         this.userData = null;
 
+        // Store the gamemode used for connection
+        this.connectedGamemode = null;
+
+        // Flag to prevent automatic reconnection during server switching
+        this.isSwitchingServers = false;
+
         // Use async initialization for login status
         this.initialize();
 
@@ -162,7 +168,20 @@ export default class NetworkManager {
 
     connect () {
         this.core.uiManager.showConnectingOverlay(true);
-        this.network.connect();
+        const gamemode = this.core.uiManager.selectedGamemode;
+        this.connectedGamemode = gamemode; // Store the gamemode for reconnection
+        this.network.connect(gamemode);
+    }
+
+    reconnect () {
+        // Disconnect if connected
+        if (this.network.worker) {
+            this.network.worker.postMessage({ type: 'disconnect' });
+        }
+        // Then reconnect with the same gamemode that was used for initial connection
+        this.core.uiManager.showConnectingOverlay(true);
+        const gamemode = this.connectedGamemode || 0; // Default to FFA if not set
+        this.network.connect(gamemode);
     }
 
     // Set up event listeners for network events
@@ -197,6 +216,20 @@ export default class NetworkManager {
         this.core.uiManager.showMenuUIElements(true);
         this.core.uiManager.showGameUIElements(false);
         this.core.camera.enableControls(false);
+
+        // Don't automatically reconnect if we're switching servers
+        if (!this.isSwitchingServers) {
+            // Attempt automatic reconnection after a short delay
+            setTimeout(() => {
+                console.log("Attempting automatic reconnection...");
+                this.reconnect();
+            }, 2000); // 2 second delay before attempting reconnection
+        } else {
+            // Reset the flag after a short delay
+            setTimeout(() => {
+                this.isSwitchingServers = false;
+            }, 100);
+        }
     }
 
     // Handle messages received from the server
@@ -392,8 +425,12 @@ export default class NetworkManager {
         // Process each player in the game state
         players.forEach(playerData => {
             const { id, name, color, skinID, position, health, hasSpawnProtection } = playerData;
+            // Calculate maxBuildingRadius based on selected gamemode
+            const selectedGamemode = this.core.uiManager.selectedGamemode;
+            const maxBuildingRadius = selectedGamemode === 1 ? 250 : 350; // 1 = Small Bases
             // Create new player instance
-            const newPlayer = new Player(id, name, color, skinID, position, health, hasSpawnProtection);
+            const gamemode = this.core.uiManager.selectedGamemode;
+            const newPlayer = new Player(id, name, color, skinID, position, health, hasSpawnProtection, maxBuildingRadius, gamemode);
 
             // Set as client player if matched
             if (clientPlayer && clientPlayer.id === id) {
@@ -416,7 +453,8 @@ export default class NetworkManager {
             const { id, ownerID, health, position, buildings } = neutral;
 
             // Create new neutral base instance
-            const newNeutral = new NeutralBase(id, position, health, ownerID);
+            const gamemode = this.core.uiManager.selectedGamemode;
+            const newNeutral = new NeutralBase(id, position, health, ownerID, gamemode);
 
             if (clientPlayer && ownerID != -1) {
                 if (ownerID == clientPlayer.id) {
@@ -450,11 +488,17 @@ export default class NetworkManager {
 
         // Hide the connecting overlay once game state is synced
         this.core.uiManager.showConnectingOverlay(false);
+
+        // Force a render to ensure buildings are displayed immediately
+        this.core.renderer.render(0);
     }
 
     handleInitialPlayerData (payload) {
         const { playerID, name, color, skinID, position } = payload;
-        const player = new Player(playerID, name, color, skinID, position);
+        // Calculate maxBuildingRadius based on selected gamemode
+        const selectedGamemode = this.core.uiManager.selectedGamemode;
+        const maxBuildingRadius = selectedGamemode === 1 ? 250 : 350; // 1 = Small Bases
+        const player = new Player(playerID, name, color, skinID, position, 2000, true, maxBuildingRadius, selectedGamemode);
         player.hasSpawnProtection = true;
         this.core.gameManager.setClientPlayer(player);
         this.core.toolbar.changeColor(color);
@@ -641,7 +685,10 @@ export default class NetworkManager {
 
     handlePlayerJoined (payload) {
         const { playerID, color, skinID, position, name } = payload;
-        const player = new Player(playerID, name, color, skinID, position);
+        // Use default radius for now, will be corrected by game state
+        const gamemode = this.core.uiManager.selectedGamemode;
+        const maxBuildingRadius = gamemode === 1 ? 250 : 350; // 1 = Small Bases
+        const player = new Player(playerID, name, color, skinID, position, 2000, false, maxBuildingRadius, gamemode);
         this.core.gameManager.addPlayer(player);
     }
 
@@ -806,6 +853,9 @@ export default class NetworkManager {
 
         // Add the building to the base (player or neutral)
         base.addBuilding(building);
+
+        // Force a render to ensure the building is displayed immediately
+        this.core.renderer.render(0);
 
         // Clear the building cache after a slight delay to prevent flickering
         if (isClient) {
@@ -988,7 +1038,8 @@ export default class NetworkManager {
     // Join the game by sending a join message to the server
     joinGame (playerName, equippedSkin) {
         const fingerprint = this.getFingerPrint();
-        const message = Message.createJoinMessage(playerName, equippedSkin, fingerprint, hcaptcha.getResponse());
+        const gamemode = this.core.uiManager.selectedGamemode;
+        const message = Message.createJoinMessage(playerName, equippedSkin, fingerprint, hcaptcha.getResponse(), gamemode);
         this.sendMessage(message);
     }
 

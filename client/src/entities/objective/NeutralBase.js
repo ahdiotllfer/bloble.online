@@ -2,7 +2,7 @@ import Player from "../Player.js";
 import SkinCache from "../../components/SkinCache.js";
 
 export default class NeutralBase extends Player {
-    constructor (id, position = { x: 0, y: 0 }, health = 1000, ownerId = null) {
+    constructor (id, position = { x: 0, y: 0 }, health = 1000, ownerId = null, gamemode = 0) {
         super();
         this.id = id;
         this.ownerID = null;
@@ -14,11 +14,24 @@ export default class NeutralBase extends Player {
         this.position = position;
         this.health = { current: health, max: 1000 };
         this.targetHealth = health; // Target health value for animation
-        this.buildingRadius = {
-            max: 260,
-            min: 82
+
+        // Check if this is the central neutral base (position 0,0) in Small Bases mode
+        const isCentralBase = position.x === 0 && position.y === 0;
+        const isSmallBasesMode = gamemode === 1;
+
+        if (isCentralBase && isSmallBasesMode) {
+            this.buildingRadius = {
+                max: 400,
+                min: 82
+            }
+            this.coreRadius = { max: 80 }; // Normal core radius value
+        } else {
+            this.buildingRadius = {
+                max: 260,
+                min: 82
+            }
+            this.coreRadius = { max: this.buildingRadius.min - 2 };
         }
-        this.coreRadius = { max: this.buildingRadius.min - 2 };
         this.buildings = [];
         this.borderRotation = 0;
         this.hasSpawnProtection = false;

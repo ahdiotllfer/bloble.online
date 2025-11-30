@@ -136,6 +136,24 @@ func broadcastPlayerJoined(player *game.Player) {
 	broadcastToAllExcept(EncodeMessage(message), player.ID)
 }
 
+func broadcastPlayerReconnected(player *game.Player) {
+	message := Message{
+		Type: MessageTypePlayerJoined, // Reuse the same message type for reconnections
+	}
+
+	buffer := new(bytes.Buffer)
+	buffer.WriteByte(byte(player.ID))
+	colorBytes := player.Base.Color
+	buffer.Write(colorBytes)
+	buffer.WriteByte(byte(player.SkinID))
+	binary.Write(buffer, binary.BigEndian, player.Base.Position.X)
+	binary.Write(buffer, binary.BigEndian, player.Base.Position.Y)
+	buffer.Write(player.Name[:])
+
+	message.Payload = buffer.Bytes()
+	broadcastToAllExcept(EncodeMessage(message), player.ID)
+}
+
 func broadcastPlayerLeft(playerID game.ID) {
 	message := Message{
 		Type: MessageTypePlayerLeft,
@@ -819,6 +837,14 @@ func sendInitialPlayerData(player *game.Player) {
 	binary.Write(buffer, binary.BigEndian, player.Base.Position.X)
 	binary.Write(buffer, binary.BigEndian, player.Base.Position.Y)
 	buffer.Write(player.Name[:])
+
+	// Send the max building radius based on game mode
+	maxBuildingRadius := game.PLAYER_MAX_BUILDING_RADIUS
+	//console.log(maxBuildingRadius);
+	// if game.CurrentGameMode == game.MODE_SMALL_BASES {
+	// 	maxBuildingRadius = 350
+	// }
+	binary.Write(buffer, binary.BigEndian, maxBuildingRadius)
 
 	message.Payload = buffer.Bytes()
 

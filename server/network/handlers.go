@@ -135,7 +135,12 @@ func handleJoinMessage(conn *websocket.Conn, payload []byte) {
 		sendError(conn)
 		return
 	}
-	secret := ""
+	secret := os.Getenv("HCAPTCHA_SECRET")
+	if secret == "" {
+		log.Println("HCAPTCHA_SECRET environment variable not set")
+		sendError(conn)
+		return
+	}
 	verifyResp, err := VerifyHCaptchaToken(token, secret, match)
 	//log.Println(verifyResp)
 	if verifyResp.Success {
@@ -150,20 +155,81 @@ func handleJoinMessage(conn *websocket.Conn, payload []byte) {
 		sendError(conn)
 		return
 	}
-	if len(remainingPayload) < 6 {
+	if len(remainingPayload) < 7 {
 		log.Println("Invalid remaining payload length")
 		sendError(conn)
 		return
 	}
-	nameLength := len(remainingPayload) - 5
+	nameLength := len(remainingPayload) - 6
 	name := string(remainingPayload[:nameLength])
 
 	equippedSkin := remainingPayload[nameLength]
 
-	fingerprint := uint32(remainingPayload[nameLength+1])<<24 |
-		uint32(remainingPayload[nameLength+2])<<16 |
-		uint32(remainingPayload[nameLength+3])<<8 |
-		uint32(remainingPayload[nameLength+4])
+	gamemode := game.GameMode(remainingPayload[nameLength+1])
+
+	fingerprint := uint32(remainingPayload[nameLength+2])<<24 |
+		uint32(remainingPayload[nameLength+3])<<16 |
+		uint32(remainingPayload[nameLength+4])<<8 |
+		uint32(remainingPayload[nameLength+5])
+
+	// Validate gamemode - if server already has a gamemode set, reject different ones
+	if game.CurrentGameMode != 0 && game.CurrentGameMode != gamemode {
+		log.Printf("Player %s tried to join with gamemode %d but server is running gamemode %d", name, gamemode, game.CurrentGameMode)
+		sendError(conn)
+		return
+	}
+
+	// Set the game mode from the client's selection (only if not set yet)
+	if game.CurrentGameMode == 0 {
+		game.CurrentGameMode = gamemode
+	}
+
+	// Check for reconnection first
+	game.DisconnectedPlayersMu.RLock()
+	disconnectedPlayer, exists := game.DisconnectedPlayers[fingerprint]
+	game.DisconnectedPlayersMu.RUnlock()
+
+	if exists && time.Now().Before(disconnectedPlayer.ExpiresAt) {
+		// Reconnection successful - restore the player
+		player := disconnectedPlayer.Player
+		player.Conn = conn // Update connection
+		player.SetLastActivity() // Reset activity timer
+
+		// Remove from disconnected players
+		game.DisconnectedPlayersMu.Lock()
+		delete(game.DisconnectedPlayers, fingerprint)
+		game.DisconnectedPlayersMu.Unlock()
+
+		// Add back to active players
+		game.State.Lock()
+		game.State.Players[player.ID] = player
+		game.State.Unlock()
+
+		playerName := string(player.Name[:])
+		// Trim trailing null bytes
+		for i := len(playerName) - 1; i >= 0 && playerName[i] == 0; i-- {
+			playerName = playerName[:i]
+		}
+		log.Printf("Player reconnected: %s (ID: %d)", playerName, player.ID)
+	
+		sendGameState(player, &player.ID)
+		sendUnitsRotations(player)
+		collectAndSendTrapperBullets(player)
+		sendInitialPlayerData(player)
+		broadcastPlayerReconnected(player)
+	
+		// Broadcast the player's buildings to other players
+		for _, building := range player.Base.Buildings {
+			broadcastBuildingPlaced(player.Base, building.ID)
+		}
+	
+		changes, changed := game.State.Leaderboard.Update(game.State.Players)
+		sendInitialLeaderboardUpdate(player)
+		if changed {
+			broadcastLeaderboardUpdateToAllExcept(&changes, player.ID)
+		}
+		return
+	}
 
 	// Log or process the extracted data
 	//log.Printf("Received join message - Name: %s, Skin: %d, Fingerprint: %d, Token: %s\n", name, equippedSkin, fingerprint, token)
@@ -223,12 +289,15 @@ func handleJoinMessage(conn *websocket.Conn, payload []byte) {
 		color = skinData.BaseColor
 	}
 
-	player, ok := game.AddPlayer(conn, permission, []byte(cleanName), color, game.ID(skinData.ID))
+	player, ok := game.AddPlayer(conn, permission, []byte(cleanName), color, game.ID(skinData.ID), fingerprint)
 	if !ok {
 		log.Println("Failed to add player to the game")
 		sendError(conn)
 		return
 	}
+
+	// Log the joining player's nickname
+	log.Printf("Player joined: %s", cleanName)
 
 	sendGameState(player, &player.ID)
 	sendUnitsRotations(player)
@@ -375,8 +444,11 @@ func handlePlacedBuildingMessage(conn *websocket.Conn, payload []byte) {
 	distance := math.Sqrt(dx*dx + dy*dy)
 
 	// Define maximum and minimum allowed distances (radii)
-	maxRadius := game.PLAYER_MAX_BUILDING_RADIUS
+	maxRadius := game.GetPlayerMaxBuildingRadius()
 	minRadius := game.PLAYER_MIN_BUILDING_RADIUS
+	if game.CurrentGameMode == game.MODE_SMALL_BASES {
+		minRadius = 80 // Smaller minimum building radius in Small Bases mode
+	}
 	maxRadiusNeutralBase := game.NEUTRAL_BASE_MAX_BUILDING_RADIUS
 	minRadiusNeutralBase := game.NEUTRAL_BASE_MIN_BUILDING_RADIUS
 
@@ -402,11 +474,11 @@ func handlePlacedBuildingMessage(conn *websocket.Conn, payload []byte) {
 
 	if buildingType == game.BARRACKS {
 		// Walls and barracks must be at the border
-		isPlayerRadiusValid = uint16(math.Floor(distance)) >= uint16(maxRadius-tolerance) &&
-			uint16(math.Ceil(distance)) <= uint16(maxRadius+tolerance)
+		isPlayerRadiusValid = uint16(math.Floor(distance)) >= uint16(maxRadius-int16(tolerance)) &&
+			uint16(math.Ceil(distance)) <= uint16(maxRadius+int16(tolerance))
 	} else {
 		// Other buildings can be within the valid range, including the border
-		isPlayerRadiusValid = !(uint16(math.Floor(distance)) > uint16(maxRadius+tolerance) ||
+		isPlayerRadiusValid = !(uint16(math.Floor(distance)) > uint16(maxRadius+int16(tolerance)) ||
 			uint16(math.Ceil(distance)) < uint16(minRadius-tolerance))
 	}
 
@@ -425,7 +497,12 @@ func handlePlacedBuildingMessage(conn *websocket.Conn, payload []byte) {
 
 			// Calculate the clamped minimum and maximum distances
 			minDistance := float64(minRadiusNeutralBase - tolerance)
+
+			// Check if this is the central neutral base (position 0,0) in Small Bases mode
 			maxDistance := float64(maxRadiusNeutralBase + tolerance)
+			if game.CurrentGameMode == game.MODE_SMALL_BASES && neutral.Base.Position.X == 0 && neutral.Base.Position.Y == 0 {
+				maxDistance = 400.0 + float64(tolerance) // Allow building up to 400 radius for central base in Small Bases mode
+			}
 
 			// Check if the distance is valid within the neutral base radii
 			if distanceToNeutralBase >= minDistance && distanceToNeutralBase <= maxDistance {

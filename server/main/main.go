@@ -10,6 +10,9 @@ import (
 	"server/game"
 	"server/network"
 	"strconv"
+	"strings"
+
+	"github.com/joho/godotenv"
 )
 
 var PORT string
@@ -61,7 +64,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 		origin := r.Header.Get("Origin")
 
 		// Allow requests from specific origins
-		if origin == "https://blubber.run.place" {
+		if origin == "https://bloble.online" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			
@@ -96,9 +99,9 @@ func getClientIP(r *http.Request) string {
 
 func wsEndpoint(w http.ResponseWriter, r *http.Request) {
        origine := r.Header.Get("Origin")
-       // Allow only requests from "https://blubber.run.place"
-	   //log.Printf(origine)
-       if origine != "https://blubber.run.place" {
+       // Allow only requests from ...
+	   log.Printf(origine)
+       if origine != "https://bloble.online" {
        		http.Error(w, "Forbidden", http.StatusForbidden)
 			log.Printf("origin forbidden: %", origine)
          	return
@@ -115,11 +118,54 @@ func wsEndpoint(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Get the port from the environment variable
-	PORT = os.Getenv("PORT")
-	if PORT == "" {
-		PORT = "8080" // Default port
-		log.Printf("Port not specified. Defaulting to port %s\n", PORT)
+	// Load environment variables from .env file
+	err := godotenv.Load()
+	if err != nil {
+		log.Printf("Warning: Error loading .env file: %v", err)
+	}
+
+	// Parse command line arguments for game mode and port
+	args := os.Args[1:]
+	modeStr := "ffa" // default mode
+	portStr := ""    // default to environment variable
+
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--mode=") {
+			modeStr = strings.TrimPrefix(arg, "--mode=")
+		} else if strings.HasPrefix(arg, "-mode=") {
+			modeStr = strings.TrimPrefix(arg, "-mode=")
+		} else if strings.HasPrefix(arg, "--port=") {
+			portStr = strings.TrimPrefix(arg, "--port=")
+		} else if strings.HasPrefix(arg, "-port=") {
+			portStr = strings.TrimPrefix(arg, "-port=")
+		}
+	}
+
+	// Set game mode based on argument
+	switch strings.ToLower(modeStr) {
+	case "smallbases", "small_bases", "small":
+		game.CurrentGameMode = game.MODE_SMALL_BASES
+		log.Printf("Game mode set to: Small Bases")
+	case "ffa", "freeforall":
+		game.CurrentGameMode = game.MODE_FFA
+		log.Printf("Game mode set to: FFA")
+	default:
+		game.CurrentGameMode = game.MODE_FFA
+		log.Printf("Unknown mode '%s', defaulting to FFA", modeStr)
+	}
+
+	// Get the port from command line argument or environment variable
+	if portStr != "" {
+		PORT = portStr
+		log.Printf("Port set from command line argument: %s\n", PORT)
+	} else {
+		PORT = os.Getenv("PORT")
+		if PORT == "" {
+			PORT = "14882" // Default port
+			log.Printf("Port not specified. Defaulting to port %s\n", PORT)
+		} else {
+			log.Printf("Port set from environment variable: %s\n", PORT)
+		}
 	}
 
 	game.Start()
@@ -133,11 +179,11 @@ func main() {
 	http.HandleFunc("/reboot", serverRebootHandler)
 
 	// Log server start
-	address := fmt.Sprintf("localhost:%s", PORT)
+	address := fmt.Sprintf("0.0.0.0:%s", PORT)
 	log.Printf("Blobl.io Server starting on %s\n", address)
 
 	// Start the server
-	if err := http.ListenAndServe("localhost:"+PORT, nil); err != nil {
+	if err := http.ListenAndServe("0.0.0.0:"+PORT, nil); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -5,6 +5,7 @@ type BuildingVariant byte
 type UnitType byte
 type UnitVariant byte
 type Permission byte
+type GameMode byte
 
 const (
 	WALL          BuildingType = 0
@@ -93,6 +94,11 @@ const (
 )
 
 const (
+	MODE_FFA         GameMode = 0 // Free For All
+	MODE_SMALL_BASES GameMode = 1 // Small player bases, big central neutral base
+)
+
+const (
 	// Player configuration
 	PLAYER_INITIAL_POPULATION = 64
 	PLAYER_INITIAL_HEALTH     = 2000
@@ -102,16 +108,17 @@ const (
 	// Player timeout and protection settings
 	PLAYER_TIMEOUT                 = 10 // Minutes
 	PLAYER_SPAWN_PROTECTION_TIME   = 10 // Minutes
-	PLAYER_SPAWN_PROTECTION_RADIUS = 355 + 145
+	PLAYER_SPAWN_PROTECTION_RADIUS = 255 + 145
 
 	// Player health regeneration settings
 	PLAYER_HEALTH_REGENERATION           = 30
 	PLAYER_HEALTH_REGENERATION_FREQUENCY = 30 // Seconds
 
 	// Player building settings
-	PLAYER_MAX_BUILDING_RADIUS = 355
+	PLAYER_MAX_BUILDING_RADIUS = 350
 	PLAYER_MIN_BUILDING_RADIUS = 120
 	PLAYER_MAX_CORE_RADIUS     = PLAYER_MIN_BUILDING_RADIUS - 2
+	PLAYER_SMALL_BASES_CORE_RADIUS = 80 // Smaller core radius for Small Bases mode
 
 	// Neutral base configuration
 	NEUTRAL_BASE_POPULATION                    = 32
@@ -131,4 +138,7 @@ const (
 	KICK_REASON_SCRIPTING = 1
 
 	COMMANDER_COST = 7000
+
+	// Player reconnection settings
+	PLAYER_RECONNECTION_WINDOW = 45 // Seconds
 )

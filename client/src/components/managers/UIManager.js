@@ -23,9 +23,10 @@ export default class UIManager {
         this.isDraggingChat = false;
         this.isChatInputFocused = false;
         this.upgradePreviewRotation = 0;
-        this.upgradeCostElements = []; // Stores elements for later updates 
+        this.upgradeCostElements = []; // Stores elements for later updates
         this.selectedUpgradeTab = 0;
         this.upgradePanelOpen = false;
+        this.selectedGamemode = 0; // 0 = FFA, 1 = Small Bases
 
         this.initializeUIElements();
         this.addLoginDialogButtonListener();
@@ -37,6 +38,7 @@ export default class UIManager {
         this.addSettingsPanelListener();
         this.addChatButtonElementListener();
         this.makeChatBoxDraggable();
+        this.addGamemodeSelectionListener();
     }
 
     initializeUIElements () {
@@ -1600,5 +1602,54 @@ export default class UIManager {
         if (!this.DOM.game.metrics) return;
         const { fps, bandwidthReceived } = this.core.gameManager.metrics;
         this.DOM.game.metrics.innerText = `${fps} FPS | ${bandwidthReceived}`
+    }
+
+    addGamemodeSelectionListener () {
+        const gamemodeElements = document.querySelectorAll("#gamemode-select .gamemode");
+        gamemodeElements.forEach((element, index) => {
+            if (element.classList.contains("disabled")) return; // Skip disabled modes
+            element.addEventListener("click", () => {
+                // Remove selected class from all
+                gamemodeElements.forEach(el => el.classList.remove("selected"));
+                // Add selected to clicked
+                element.classList.add("selected");
+                // Set selectedGamemode
+                this.selectedGamemode = index;
+
+                // If already connected, switch to the appropriate server for this gamemode
+                if (this.core.networkManager.network.serverAddress) {
+                    this.switchServerForGamemode(index);
+                }
+            });
+        });
+    }
+
+    switchServerForGamemode (gamemodeIndex) {
+        // Get the appropriate server for this gamemode
+        const serverKeys = Object.keys(Servers);
+        const serverKey = serverKeys[gamemodeIndex] || serverKeys[0]; // Fallback to first server
+        const newServerAddress = Servers[serverKey];
+
+        // If it's a different server, switch to it
+        if (newServerAddress && newServerAddress !== this.core.networkManager.network.serverAddress) {
+            console.log(`Switching server for gamemode ${gamemodeIndex} to ${newServerAddress}`);
+
+            // Set flag to prevent automatic reconnection
+            this.core.networkManager.isSwitchingServers = true;
+
+            // Disconnect from current server
+            if (this.core.networkManager.network.worker) {
+                this.core.networkManager.network.worker.postMessage({ type: 'disconnect' });
+            }
+
+            // Update the server address
+            this.core.networkManager.network.serverAddress = newServerAddress;
+
+            // Show connecting overlay and connect to new server after a short delay to allow disconnect to complete
+            this.core.uiManager.showConnectingOverlay(true);
+            setTimeout(() => {
+                this.core.networkManager.network.connect(this.selectedGamemode);
+            }, 500); // 500ms delay
+        }
     }
 }

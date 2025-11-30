@@ -18,7 +18,7 @@ export default class Message {
         return messageBytes;
     }
 
-    static createJoinMessage (name, equippedSkin, fingerprint, token) {
+    static createJoinMessage (name, equippedSkin, fingerprint, token, gamemode) {
         // Truncate the name if it exceeds 12 characters
         name = name.slice(0, 12);
 
@@ -27,9 +27,13 @@ export default class Message {
 
         const tokenBytes = new TextEncoder().encode(`\u{1F512}${token}\u{1F513}`);
 
-        // Convert equippedSkin to a single byte 
+        // Convert equippedSkin to a single byte
         const skinByte = new Uint8Array(1); // Create a single byte array
         skinByte[0] = equippedSkin;
+
+        // Convert gamemode to a single byte
+        const gamemodeByte = new Uint8Array(1);
+        gamemodeByte[0] = gamemode;
 
         // Convert the fingerprint to a 4-byte Uint8Array (32-bit integer)
         const fingerprintBytes = new Uint8Array(4);
@@ -38,8 +42,8 @@ export default class Message {
         fingerprintBytes[2] = (fingerprint >> 8) & 0xFF;
         fingerprintBytes[3] = fingerprint & 0xFF; // Least significant byte
 
-        // Calculate the total payload size (name length + 1 byte for skin + 4 bytes for fingerprint)
-        const payload = new Uint8Array(nameBytes.length + 1 + fingerprintBytes.length + tokenBytes.length);
+        // Calculate the total payload size (name length + 1 byte for skin + 1 byte for gamemode + 4 bytes for fingerprint)
+        const payload = new Uint8Array(nameBytes.length + 1 + 1 + fingerprintBytes.length + tokenBytes.length);
 
         // Copy the name bytes starting from the first byte
         payload.set(nameBytes, 0);
@@ -47,10 +51,13 @@ export default class Message {
         // Copy the skin byte
         payload.set(skinByte, nameBytes.length);
 
-        // Append the fingerprint bytes at the end of the payload
-        payload.set(fingerprintBytes, nameBytes.length + 1);
-        
-        payload.set(tokenBytes, nameBytes.length + 1 + fingerprintBytes.length);
+        // Copy the gamemode byte
+        payload.set(gamemodeByte, nameBytes.length + 1);
+
+        // Append the fingerprint bytes
+        payload.set(fingerprintBytes, nameBytes.length + 1 + 1);
+
+        payload.set(tokenBytes, nameBytes.length + 1 + 1 + fingerprintBytes.length);
 
         // Return the message with the appropriate type and payload
         return new Message(0, payload);

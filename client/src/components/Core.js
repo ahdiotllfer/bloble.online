@@ -41,7 +41,7 @@ export default class Core {
 
     initMenuBackground () {
         let color = "#ff605f";
-        let player = new Player(-1, "(〃￣ω￣〃)ゞ", color, 0, { x: 840, y: 0 });
+        let player = new Player(-1, "(〃￣ω￣〃)ゞ", color, 0, { x: 840, y: 0 }, 2000, false, 350);
         player.removeSpawnProtection();
         player.addBuilding(new Buildings.House(color, { x: 610, y: 100 }, BuildingVariantTypes.HOUSE.BASIC));
         player.addBuilding(new Buildings.House(color, { x: 650, y: 160 }, BuildingVariantTypes.HOUSE.LARGE_HOUSE));
@@ -123,7 +123,7 @@ export default class Core {
 
         color = "#60eaff";
 
-        player = new Player(-2, "(⌐⊙_⊙)", color, 0, { x: -650, y: -300 });
+        player = new Player(-2, "(⌐⊙_⊙)", color, 0, { x: -650, y: -300 }, 2000, false, 350);
         player.removeSpawnProtection();
         radius = 154; // Radius of the circle
         numberOfGenerators = 12; // Number of generators to place

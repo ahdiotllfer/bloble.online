@@ -22,7 +22,8 @@ type Player struct {
 	Conn         *websocket.Conn
 	Permission   Permission
 	Name         [12]byte
-	LastActivity time.Time // Used for timeout
+	Fingerprint  uint32       // Used for reconnection
+	LastActivity time.Time    // Used for timeout
 	LastResync   time.Time
 	SkinID       ID
 
