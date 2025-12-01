@@ -5,7 +5,7 @@ export default class NeutralBase extends Player {
     constructor (id, position = { x: 0, y: 0 }, health = 1000, ownerId = null, gamemode = 0) {
         super();
         this.id = id;
-        this.ownerID = null;
+        this.ownerID = ownerId;
         this.defaultName = "Neutral";
         this.name = this.defaultName;
         this.nameWidth = null;

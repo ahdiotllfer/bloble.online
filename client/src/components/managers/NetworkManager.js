@@ -469,8 +469,11 @@ export default class NetworkManager {
 
             const player = this.core.gameManager.getPlayerById(ownerID);
             if (!player) return;
-
+        
             this.core.gameManager.setNeutralCaptured(player, newNeutral);
+        
+            // Force a render to ensure ownership is displayed immediately
+            this.core.renderer.render(0);
         });
 
         // Process bushes 
@@ -510,6 +513,18 @@ export default class NetworkManager {
         this.core.camera.setZoom(0.75);
 
         this.core.gameManager.stats.time = Date.now();
+
+        // Update ownership of neutral bases owned by this player
+        this.core.gameManager.neutrals.forEach(neutral => {
+            if (neutral.ownerID === playerID) {
+                neutral.setAsClientPlayer();
+                this.core.gameManager.setNeutralCaptured(player, neutral);
+                // Force a render to ensure ownership is displayed immediately
+                this.core.renderer.render(0);
+            }
+        });
+
+        this.core.renderer.render(0);
     }
 
     handleResourceUpdate (payload) {

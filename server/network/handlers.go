@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	"github.com/gorilla/websocket"
+	"github.com/joho/godotenv"
 )
 type VerifyCaptchaResponse struct {
 	Success     bool     `json:"success"`
@@ -135,9 +136,15 @@ func handleJoinMessage(conn *websocket.Conn, payload []byte) {
 		sendError(conn)
 		return
 	}
-	secret := os.Getenv("HCAPTCHA_SECRET")
-	if secret == "" {
-		log.Println("HCAPTCHA_SECRET environment variable not set")
+	envMap, err := godotenv.Read("../.env")
+	if err != nil {
+		log.Printf("Error reading .env file: %v", err)
+		sendError(conn)
+		return
+	}
+	secret, exists := envMap["HCAPTCHA_SECRET"]
+	if !exists || secret == "" {
+		log.Println("HCAPTCHA_SECRET not found in .env file")
 		sendError(conn)
 		return
 	}
